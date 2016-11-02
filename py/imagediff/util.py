@@ -2,76 +2,94 @@
 Few utility functions useful here and elsewhere
 """
 
-def project(x1,x2):
-    x1=np.sort(x1)
-    x2=np.sort(x2)
-    Pr=np.zeros((len(x1),len(x2)))
+import numpy as np
+from scipy.signal import convolve2d as conv2d 
+import scipy.linalg as LA
+from scipy.sparse import spdiags
+from scipy.sparse import issparse
+import sys    
+
+def get_background_level(image,npix=80,sextractor=False,ordinary=False):
+    " Extimate the background level using photutils 0.3"
     
-    #- find the projection matrix to map x1 to x2 such that x1=Pr.dot(x2), 
-    #- x1 and x2 related by linear interpolation
+
+    from photutils.background import Background2D, SExtractorBackground
+    from photutils import SigmaClip
+
+    if sextractor:
+        sigma_clip=SigmaClip(sigma=2.)
+        bkg=SExtractorBackground(sigma_clip)
+        bkg_value=bkg.calc_background(image)
+    if ordinary:
+       from scipy.ndimage import filters
+       pix=image.ravel()
+       bkg_value=filters.median_filter(pix,50).reshape(image.shape)
+    else:
+        bkg=Background2D(image,box_size=npix)
+        bkg_value=bkg.background
+    return bkg_value
+
+
+def get_convolve_kernel(imgarray,kernel):
+    """
+    imgarray: [nx,ny] 2d array like image
+    kernel: [n,n,N] eg. [21,21,49]
+    mode: scipy.special.convolve2d mode
+          'same' gives same dimension as imgarray
+    """
+    convec=np.zeros((kernel.shape[2],imgarray.size))
+    for i in range(kernel.shape[2]):
+        conv=conv2d(imgarray,kernel[:,:,i],mode='same').ravel()
+        convec[i,:]=conv
+    return convec
+
+def solve_for_coeff(A,b,W=None,H=None):
+
+    """
+    A: Matrix: (nobs,nvar)
+    b: vector: (science pix) (nvar)
+    W: wt vector: (nvar)
+    """
+
+    if W is None:
+       W=np.ones(A.shape[1])
     
-    for jj in range(len(x2)-1): #columns
-        for ii in range(len(x1)-1): #rows
-
-            if x1[ii]==x2[jj]:
-                Pr[ii,jj]=1.
-            if ((x1[ii]> x2[jj]) & (x1[ii] <= x2[jj+1])):
-                dx=(x1[ii]-x2[jj])/(x2[jj+1]-x2[jj]) 
-                Pr[ii,jj]=1-dx
-                Pr[ii,jj+1]=dx
-    #- Covariance on same end points should be 1
-    if x2[-1]==x1[-1]:
-        Pr[-1,-1]=1.
-    return Pr
-
-def resample(x,y,dy,xx):
-    """ 
-       Adopting from sbailey/specter based on Spectroperfectionism (Bolton & Schlegel 2009)
-
-    Equations 4 through 16
-
-    Args: x: 1d array of independent variables
-          y: 1d array of values sampled at x
-          dy: 1d array , errors on y
-          xx: new grid for resampling (same units of x)
-    """    
-    n1=len(x)
-    n2=len(xx)
-
-    #- projection xx -> x
-    Pr=project(x,xx)
-
-    #- inverse error**2/ Weight matrix
-    W=spdiags(1/dy**2,0,n1,n1)    
-
-
-    iC=Pr.T.dot(W.dot(Pr)) #- gives inverse covariance     
+    #- Inverse covariance matrix
+    iCov=A.T.dot(W.dot(A))
+    y=A.T.dot(W.dot(b))
+    if H is not None: # need to correct this
+        print "Adding regularization"
+        #- first normalize: 
+        iCov=iCov+H
+    print "iCov Condition number",np.linalg.cond(iCov) 
     
-    #- Now solve
-    out=Pr.T.dot(W.dot(y))
-    yy=np.linalg.solve(iC,out) #- should have the dimension of xx. Cholesky decomposition is fast??
-    
-    #- This has deconvolved the spectrum. Need to reconvolve back and get the errors
-    # right and uncorrelated in the new grid. Follwing the Resolution matrix 
-    # approach (Section 3) and diagonalize the error matrix 
-    #- first solve for eigen values and eigen vectors:
+    xsol=np.linalg.solve(iCov,y)
 
-    w, v=scipy.linalg.eigh(iC)
+    w, v=LA.eigh(iCov)
+
+    maxval=np.max(w)
+    threshold=maxval*sys.float_info.epsilon
+    wscaled=np.zeros_like(w)
+
+    minval=np.sqrt(maxval)*threshold #- using sqrt
+    replace=minval
+    wscaled[:]=np.where((w>minval),w,replace*np.ones_like(w))
     nw=len(w)
-    wdiag=spdiags(np.sqrt(w),0,nw,nw)
+    wdiag=spdiags(wscaled,0,nw,nw)
     
     #- construct matrix from this and eigen vectors
-    sqrt_iC=v.dot(wdiag.dot(v.T))
+    sqrt_iCov=v.dot(wdiag.dot(v.T))
     
     #- get the norm vector and error
-    norm_vector=np.sum(sqrt_iC,axis=1)
+    norm_vector=np.sum(sqrt_iCov,axis=1)
     dyy=1/norm_vector
 
     #- resolution
-    R = np.outer(norm_vector**(-1), np.ones(norm_vector.size)) * sqrt_iC
+    R = np.outer(norm_vector**(-1), np.ones(norm_vector.size)) * sqrt_iCov
     
     #- convolve flux so as to decorrelate the errors
-    yout=R.dot(yy) #- This removes the ringing and preserves the same resolution as data.
+    yout=R.dot(xsol) #- This removes the ringing and preserves the same resolution as data.
 
-    return yout,dyy,R
+    #return yout#,dyy,R
+    return xsol
 
