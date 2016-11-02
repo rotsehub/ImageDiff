@@ -19,12 +19,13 @@ def main():
     parser.add_argument("--kernels",type=str,help="what kernels to convolve?",default=None)
     parser.add_argument("--boundary",type=str,help="boundary to do the image differncing", default=None)
     parser.add_argument("--maskreg",type=str,help="mask a region in the image",default=None)
+    parser.add_argument("--sqrt",type=str,help="use sqrt of the ivar", default=False)
     args = parser.parse_args()
 
     do_subtraction(args.image,args.template,cutoff=args.cutoff,radius=args.radius,boundary=args.boundary,
-maskreg=args.maskreg,kerneltype=args.kernels,method=args.method,plot=True)
+maskreg=args.maskreg,kerneltype=args.kernels,method=args.method,sqrt=args.sqrt,plot=True)
 
-def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,maskreg=None, kerneltype=None,method=None,plot=True):
+def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,maskreg=None, kerneltype=None,method=None,sqrt=False,plot=True):
 
 
     print "processing", imagefile
@@ -55,9 +56,7 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
         allk=KK.all_kernels()
 
     print "using kernel", kerneltype
-    print allk.shape
-    print allk[:,:,0]
-    print "sum", np.sum(allk[:,:,0])
+
     image=fits.open(imagefile)
     mask=np.ones_like(image[0].data)
 
@@ -140,14 +139,14 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
 
         #- list convolved template as data
         data=np.array([convtemp[i,:] for i in range(convtemp.shape[0])],'f')
-        print data.shape
         var_data=data.clip(0.)+readnoise_t**2
         wt=1./var_data
 
         #- Add image to the data list
-        #sc_var=Zs.clip(0.)+readnoise_i**2
         all_data=np.vstack((data,Zs.ravel()))
         all_wt=np.vstack((wt,1./sc_variance.ravel()))
+        if sqrt: 
+            all_wt=all_wt**0.5
         model=empca.empca(all_data,all_wt,niter=15,nvec=10,smooth=0)
         efftemplate=model.eigvec.T.dot(model.coeff[-1]).reshape(nx,ny)
         dof = all_data.size-10*nx-10*(n_im+1)
@@ -160,7 +159,10 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
         A=convtemp.T
         ivar=1./sc_variance.ravel()
         from scipy.sparse import spdiags
-        wt=spdiags(ivar**0.5,0,ivar.size,ivar.size) #- only image weights
+        if sqrt:
+            wt=spdiags(np.sqrt(ivar),0,ivar.size,ivar.size) 
+        else:
+            wt=spdiags(ivar,0,ivar.size,ivar.size)
         b=Zs.ravel()
         xsol=util.solve_for_coeff(A,b,W=wt)
         efftemplate=convtemp.T.dot(xsol).reshape(Zs.shape)
