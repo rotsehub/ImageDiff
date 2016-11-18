@@ -20,12 +20,15 @@ def main():
     parser.add_argument("--boundary",type=str,help="boundary to do the image differncing", default=None)
     parser.add_argument("--maskreg",type=str,help="mask a region in the image",default=None)
     parser.add_argument("--sqrt",type=str,help="use sqrt of the ivar", default=False)
+    parser.add_argument("--effout",type=str,help="output effective file",default=None)
+    parser.add_argument("--plot",type=str,help="show plot or not?", default=False)
+    parser.add_argument("--rdnoise",type=str, help="read noise from the image header", default=False)
     args = parser.parse_args()
 
     do_subtraction(args.image,args.template,cutoff=args.cutoff,radius=args.radius,boundary=args.boundary,
-maskreg=args.maskreg,kerneltype=args.kernels,method=args.method,sqrt=args.sqrt,plot=True)
+maskreg=args.maskreg,kerneltype=args.kernels,method=args.method,sqrt=args.sqrt,plot=args.plot,effout=args.effout,rdnoise=args.rdnoise)
 
-def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,maskreg=None, kerneltype=None,method=None,sqrt=False,plot=True):
+def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,maskreg=None, kerneltype=None,method=None,sqrt=False,plot=False,effout=None,rdnoise=False):
 
 
     print "processing", imagefile
@@ -38,7 +41,7 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
     if kerneltype not in ["gauss_poly","gauss_hermite","delta"]:
         raise ValueError("Not a valid kernel type. Give a valid kernel type.")
 
-    pixelsize = 9 
+    pixelsize = 11
 
     #- instantiate the base Kernel
     Kern=kernels.Kernels(kerneltype, pixelsize)
@@ -54,6 +57,7 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
     if Kern.name == "delta":
         KK=kernels.Delta(Kern)
         allk=KK.all_kernels()
+        #H=KK.make_R_matrix
 
     print "using kernel", kerneltype
 
@@ -113,14 +117,24 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
     Zt[Zt==1.0e-30]=np.random.normal(0,rmst,size=k_picked.shape)
     Zs[Zs==1.0e-30]=np.random.normal(0,rmsi,size=k_picked.shape)
 
-    readnoise_t=temphdr["BSTDDEV"]
-    readnoise_i=imghdr["BSTDDEV"]
-    
+    if rdnoise:
+        readnoise_t=temphdr["BSTDDEV"]
+        readnoise_i=imghdr["BSTDDEV"]
+    else:
+        #- assume a sparse noisy image. derive from the pixel counts. This is too large!
+        #- readnoise_i=np.median(Zs)-np.percentile(Zs,15.865)
+        #- readnoise_t=np.median(Zt)-np.percentile(Zt,15.865)
+        readnoise_i=6.
+        readnoise_t=5.
+
+    print "Rdnoise image:", readnoise_i
+    print "Rdnoise template:", readnoise_t
     exptime_t=temphdr["EXPTIME"]
     exptime_i=imghdr["EXPTIME"]
-    
-    sc_variance=Zs.clip(0.0)+readnoise_i**2
-    temp_variance=Zt.clip(0.0)+readnoise_t**2       
+     
+    sc_variance=np.abs(Zs)+readnoise_i**2 # Zs.clip(0) ???
+    temp_variance=np.abs(Zt)+readnoise_t**2   
+    #tot_variance=sc_variance+temp_variance    
 
     convtemp=util.get_convolve_kernel(Zt,allk) #2D [nvec,nobs]
     #- subreg=int(sc.shape[0]/300)+1 #- dividing into subregions
@@ -149,13 +163,13 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
             all_wt=all_wt**0.5
         model=empca.empca(all_data,all_wt,niter=15,nvec=10,smooth=0)
         efftemplate=model.eigvec.T.dot(model.coeff[-1]).reshape(nx,ny)
-        dof = all_data.size-10*nx-10*(n_im+1)
-        print "dof",dof
+        #dof = all_data.size-10*nx-10*(n_im+1)
+        #print "dof",dof
         #Chisq=np.sum((effdata-all_data.T)**2*all_wt.T)/dof
         #print "Chisq_pca", Chisq
 
     else: #- kernel based
-
+        print "kernel based"
         A=convtemp.T
         ivar=1./sc_variance.ravel()
         from scipy.sparse import spdiags
@@ -168,7 +182,6 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
         efftemplate=convtemp.T.dot(xsol).reshape(Zs.shape)
         
     #- diff image
-
     diffimage=(Zs-efftemplate)
     if maskreg is not None: 
         diffrms=np.std(diffimage[(diffimage>np.percentile(diffimage,5)) & (diffimage<np.percentile(diffimage,95))])
@@ -185,19 +198,19 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
     finalsc=diffimage##*np.sum(Zs)
     offcenters=finalsc
 
+    # Quality metrics
+
+    ii = np.where(sc_variance>0)
+    dof=Zs.size+convtemp.size-convtemp.shape[0]
+    print "dof",dof        
+    chisq=np.sum(diffimage[ii]**2/sc_variance[ii])/dof
+    
     #- fraction of the variance recovered.
     
-    R_var=1.0-np.var(diffimage)/np.var(Zs)
+    R_var=1.0-np.var(diffimage[ii])/np.var(Zs[ii])
     
     print "diff_R2: ",R_var
 
-    #print "rmse: ", rmse
-    
-    #print "Chisq", np.sum(diffimage**2/variance_in_data)/dof
-    #print "Mean Difference:", np.mean(offcenters),'+/-',np.std(offcenters) # demand N(0,1) like distribution
-
-    #- write difference image file if mean and rms are resonably good.
-    #- get the headers correct first
     diff_imagename=image_base[0]+'-sub_c.fit'
     diff_header=temphdr
     diff_header["MJD"]=imghdr["MJD"]
@@ -214,28 +227,40 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
     #if R_var > 0.8 : #- not sure if this is okay all the time but keeping as a criteria
     
     fits.writeto(diff_imagename,diffimage,clobber=True,header=diff_header)
-    #fits.writeto(refc_image,efftemplate,clobber=True,header=temphdr) # writing image data instead of template convolved as in idl case
-    #else: 
-    #    print "Differencing does not seem okay. Not writing to file for ", image_base[0]
-
-    #- write kernels if needed (useful for old image_differencing)
-    #fits.writeto('gauss_hermite_19x19_kernels.fits',allk,clobber=True)
-
+    if effout is not None:
+        fits.writeto(effout,efftemplate,clobber=True,header=diff_header) #- use same header
+    
+    print "wrote differenced image", diff_imagename
+    
     if plot:
-        fig = plt.figure()
-        ax = fig.gca(projection='3d')
+        ax1=plt.subplot(121,projection='3d')
+        #ax1.gca(projection='3d')
         X=np.linspace(int(KK.pixelsize)*-1,int(Kern.pixelsize),Kern.pixelsize)
         Y=np.linspace(int(KK.pixelsize)*-1,int(Kern.pixelsize),Kern.pixelsize)
         Xs, Ys = np.meshgrid(X, Y)
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
+        ax1.set_xlabel('X')
+        ax1.set_ylabel('Y')
 
         sc_x=np.linspace(0,Zs.shape[0]-1,Zs.shape[0])[Zs.shape[0]/2-40:Zs.shape[0]/2+40]
         sc_y=np.linspace(0,Zs.shape[1]-1,Zs.shape[1])[Zs.shape[0]/2-40:Zs.shape[0]/2+40]
 
         SCX,SCY=np.meshgrid(sc_x,sc_y)
 
-        surf = ax.plot_surface(SCX, SCY,finalsc[Zs.shape[0]/2-40:Zs.shape[0]/2+40,Zs.shape[0]/2-40:Zs.shape[0]/2+40],rstride=1, cstride=1,   cmap=cm.Accent, linewidth=0.2)
+        surf = ax1.plot_surface(SCX, SCY,finalsc[Zs.shape[0]/2-40:Zs.shape[0]/2+40,Zs.shape[0]/2-40:Zs.shape[0]/2+40],rstride=1, cstride=1,   cmap=cm.Accent, linewidth=0.2)
+
+        ax2=plt.subplot(122)
+        
+        refpixel=Zs.shape[0]/2
+        ax2.step(np.arange(int(Zs.shape[0]/2-40),int(Zs.shape[0]/2+40)),Zs[Zs.shape[0]/2-40:Zs.shape[0]/2+40,refpixel],label='Data')
+        ax2.step(np.arange(int(Zs.shape[0]/2-40),int(Zs.shape[0]/2+40)),efftemplate[Zs.shape[0]/2-40:Zs.shape[0]/2+40,refpixel],label='Model Host')
+        ax2.step(np.arange(int(Zs.shape[0]/2-40),int(Zs.shape[0]/2+40)),diffimage[Zs.shape[0]/2-40:Zs.shape[0]/2+40,refpixel],label='Residual')
+
+        ax2.text(0.3,0.7, r"$\chi^2/dof = %.2f$"%chisq, verticalalignment='bottom', horizontalalignment='right',transform=ax2.transAxes)
+        ax2.set_xlabel("Pixels (relative position)")
+        ax2.yaxis.set_label_position("right")
+        ax2.yaxis.tick_right()
+        ax2.set_ylabel("Counts")
+        plt.legend()
         plt.show()
 
 if __name__=='__main__':

@@ -34,7 +34,7 @@ class Gauss_Poly(Kernels):
         if pixelsize is None:
             pixelsize=9
         if sigma is None:
-            sigma=[1.,1.5,3.5]
+            sigma=[0.7,1.5,3.]
         if orders is None:
             orders=[4,3,2]
 
