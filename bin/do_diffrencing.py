@@ -23,12 +23,13 @@ def main():
     parser.add_argument("--effout",type=str,help="output effective file",default=None)
     parser.add_argument("--plot",type=str,help="show plot or not?", default=False)
     parser.add_argument("--rdnoise",type=str, help="read noise from the image header", default=False)
+    parser.add_argument("--varlimit",type=float,help="variance limit to be expected", default=0.8)
     args = parser.parse_args()
 
     do_subtraction(args.image,args.template,cutoff=args.cutoff,radius=args.radius,boundary=args.boundary,
-maskreg=args.maskreg,kerneltype=args.kernels,method=args.method,sqrt=args.sqrt,plot=args.plot,effout=args.effout,rdnoise=args.rdnoise)
+maskreg=args.maskreg,kerneltype=args.kernels,method=args.method,sqrt=args.sqrt, plot=args.plot,effout=args.effout,rdnoise=args.rdnoise, varlimit=args.varlimit)
 
-def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,maskreg=None, kerneltype=None,method=None,sqrt=False,plot=False,effout=None,rdnoise=False):
+def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,maskreg=None, kerneltype=None,method=None,sqrt=False,plot=False,effout=None,rdnoise=False,varlimit=0.8):
 
 
     print "processing", imagefile
@@ -122,9 +123,9 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
         readnoise_i=imghdr["BSTDDEV"]
     else:
         #- assume a sparse noisy image. derive from the pixel counts. This is too large!
-        #- readnoise_i=np.median(Zs)-np.percentile(Zs,15.865)
-        #- readnoise_t=np.median(Zt)-np.percentile(Zt,15.865)
-        readnoise_i=6.
+        #readnoise_i=np.median(Zs)-np.percentile(Zs,15.865)
+        #readnoise_t=np.median(Zt)-np.percentile(Zt,15.865)
+        readnoise_i=5.
         readnoise_t=5.
 
     print "Rdnoise image:", readnoise_i
@@ -224,13 +225,15 @@ def do_subtraction(imagefile,templatefile,cutoff=1.0,radius=10,boundary=None,mas
     refc_image=temp_base[0]+'-'+image_break[0]+'-'+image_break[2]+'-refc_c.fit'
     refchdr=temphdr
 
-    #if R_var > 0.8 : #- not sure if this is okay all the time but keeping as a criteria
-    
-    fits.writeto(diff_imagename,diffimage,clobber=True,header=diff_header)
-    if effout is not None:
-        fits.writeto(effout,efftemplate,clobber=True,header=diff_header) #- use same header
-    
-    print "wrote differenced image", diff_imagename
+    #write to the file if variance meets expectation;
+    if R_var > varlimit:
+        fits.writeto(diff_imagename,diffimage,clobber=True,header=diff_header)
+        print "wrote differenced image", diff_imagename
+        if effout is not None:
+            fits.writeto(effout,efftemplate,clobber=True,header=diff_header) #- use same header
+            print "wrote model image", effout
+    else:
+        print "INFO: Not enough variance in the model.... Not writing to file!"
     
     if plot:
         ax1=plt.subplot(121,projection='3d')
