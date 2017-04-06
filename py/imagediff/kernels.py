@@ -13,7 +13,7 @@ def gaussian(x,sigma=1.0):
     return gauss
 
 def gauss_hermite(u,sigma=1.,m=0):
-    gaus_herm=gaussian(u,sigma)*spo.eval_hermite(m,u/sigma)
+    gaus_herm=gaussian(u,sigma)*spo.eval_hermite(m,u)
 
     return gaus_herm
 

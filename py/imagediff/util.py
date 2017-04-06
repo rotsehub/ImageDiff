@@ -15,7 +15,9 @@ def get_background_level(image,npix=50,sextractor=False,ordinary=False):
 
     from photutils.background import Background2D, SExtractorBackground
     from photutils import SigmaClip
-
+    if npix> image.shape[0]: 
+       print "Image shape", image.shape
+       npix=image.shape[0]-1
     if sextractor:
         sigma_clip=SigmaClip(sigma=2.)
         bkg=SExtractorBackground(sigma_clip)
@@ -58,9 +60,6 @@ def solve_for_coeff(A,b,W=None,H=None,resol=False):
     y=A.T.dot(W.dot(b))
 
     print "iCov Condition number",np.linalg.cond(iCov) 
-    
-    #- solve
-    xsol=np.linalg.solve(iCov,y)
 
     if resol: 
         R,ivar=get_resolution(iCov)
@@ -81,6 +80,9 @@ def solve_for_coeff(A,b,W=None,H=None,resol=False):
     else: # need to correct this
         print "Adding regularization"
         iCov=iCov+H
+    
+    #- solve
+    xsol=np.linalg.solve(iCov,y)
 
     return xsol
 
