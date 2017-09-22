@@ -1,0 +1,3 @@
+These images show Kernel convolution of one of my advisor's image, and reconstruction of a few using PCA Eigen vectors.
+Numbers on top of the vectors are the coefficients/weights for linear combination to reconstruct back the original (convolved) image.
+
