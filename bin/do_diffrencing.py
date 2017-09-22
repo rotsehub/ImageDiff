@@ -61,8 +61,19 @@ def main():
         if args.outfile is not None:
             outfilename=args.outfilename
         else: outfilename=diff_imagename
+        
+        #- fill in the diff image to full size of boundary
+        if args.boundary is not None:
+            print "Boundary:", args.boundary
+            filledimage=image[0].data
+            print filledimage.shape
+            print diffimage.shape
+            xlo,xhi,ylo,yhi=map(int, args.boundary.split(','))
+            filledimage[xlo:xhi,ylo:yhi]=diffimage
+        else:
+            filledimage=diffimage
 
-        fits.writeto(outfilename,diffimage,clobber=True,header=diff_header)
+        fits.writeto(outfilename,filledimage,clobber=True,header=diff_header)
         print "wrote differenced image", outfilename
 
         if args.effout is not None:
