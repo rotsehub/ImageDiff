@@ -1,6 +1,13 @@
-This was a fun activity to test the work with your own advisor's image!
+This was a fun activity to test the algorithm with own advisor's image!
 
 These images show Kernel convolution of one of my advisor's images, and reconstruction of a few using 10 PCA Eigen vectors.
 Numbers on top of the vectors are the coefficients/weights for linear combination to reconstruct back the original (convolved) image.
+
+Description:
+
+Bob_mug_convolved.png: Original image convolved by a (9x9) 2d Kernel functions: 30 modified Gaussians   
+Bob_mug_pca_eigvec.png: 10 PCA Eigen vectors constructed from the 30 images
+Bob_mug_pca_eigvec-im6.png: Reconstruction of the 6th image using 10 Eigen vectors. Numbers indicate the coefficients of the linear combination
+Bob_mug_pca_eigvec-im30.png: Reconstruction of the 30th image.
 
 
