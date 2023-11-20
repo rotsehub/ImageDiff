@@ -1,0 +1,2 @@
+The script 'do_diffrencing_ROTSE.py' is the image differencing procedure for the standard fits image file for ROTSE Supernova Survay image. 
+One can go through this pipeline and rewrite one using the same data agnostic modules for their specific imaging data model.  
